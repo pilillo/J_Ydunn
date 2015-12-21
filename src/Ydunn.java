@@ -8,6 +8,7 @@ import com.bitalino.comm.BITalinoException;
 import com.bitalino.comm.BITalinoFrame;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
+import org.jfree.data.time.Millisecond;
 import org.jfree.data.time.TimeSeries;
 import org.jfree.data.time.TimeSeriesCollection;
 
@@ -32,7 +33,7 @@ public class Ydunn extends JFrame implements DiscoveryListener, WindowListener, 
     private StreamConnection connection;
 
     private boolean enabledAcquisition;
-    private int samplingWindowSize = 20;
+    //private int samplingWindowSize = 1000;
 
     // interface
     private JTabbedPane tabbedPane;
@@ -77,7 +78,7 @@ public class Ydunn extends JFrame implements DiscoveryListener, WindowListener, 
         for(int i=0; i < 5; i++){
             ts[i] = new TimeSeries( "timeserie "+i );
             //ts[i].add(new Second(), new Double( 0 ) );
-            ts[i].setMaximumItemAge(30000);
+            ts[i].setMaximumItemAge(1000000);
         }
         tabbedPane.addTab( "EMG", createChart("EMG data", "mV", ts[0]) );
         tabbedPane.addTab( "EDA", createChart("EDA data", "mV", ts[1]) );
@@ -247,30 +248,28 @@ public class Ydunn extends JFrame implements DiscoveryListener, WindowListener, 
         try {
             device.start();
 
-            // read n samples
+            // read n samples, according to the selected sampling frequency
             enabledAcquisition = true;
-            BITalinoFrame[] samplesRead = new BITalinoFrame[samplingWindowSize];
+            BITalinoFrame[] samplesRead = new BITalinoFrame[samplingFreq];
 
             while(enabledAcquisition){
 
-                System.out.println("Reading " + samplingWindowSize + " samples..");
+                System.out.println("Reading " + samplingFreq + " samples..");
 
-                for (int counter = 0; counter < samplingWindowSize; counter++) {
+                //Date now = Calendar.getInstance().getTime();
+                Millisecond p = new Millisecond();
+
+                for (int counter = 0; counter < samplingFreq; counter++) {
 
                     BITalinoFrame[] frames = device.read(1);
                     samplesRead[counter] = frames[0];
 
-                    System.out.println("FRAME: " + frames[0].toString());
-                    /*
-                    //Date now = Calendar.getInstance().getTime();
+                    //System.out.println("FRAME: " + frames[0].toString());
                     for(Integer i : inputs){
-                        //ts[i].addOrUpdate(new Second(), samplesRead[counter].getAnalog(i));
                         // 1000 Hz = 1ms, 100 Hz = 10 ms, 10 Hz = 100 ms
-                        TimePeriod p = new Millisecond();
-                        ts[i].addOrUpdate(new Millisecond(), samplesRead[counter].getAnalog(i));
+                        ts[i].addOrUpdate(p.next(), samplesRead[counter].getAnalog(i));
                     }
-*/      
-                    Thread.sleep(1000);
+
                 }
             }
 
@@ -278,9 +277,9 @@ public class Ydunn extends JFrame implements DiscoveryListener, WindowListener, 
             this.device.stop();
         } catch (BITalinoException e) {
             e.printStackTrace();
-        } catch (InterruptedException e) {
+        } /*catch (InterruptedException e) {
             e.printStackTrace();
-        }
+        }*/
     }
 
     public static void main(String[] args) throws Throwable {
