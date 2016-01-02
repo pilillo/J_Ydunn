@@ -3,6 +3,8 @@
  */
 
 
+import ch.systemsx.cisd.hdf5.HDF5Factory;
+import ch.systemsx.cisd.hdf5.IHDF5SimpleWriter;
 import com.bitalino.comm.BITalinoDevice;
 import com.bitalino.comm.BITalinoException;
 import com.bitalino.comm.BITalinoFrame;
@@ -22,8 +24,11 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowEvent;
 import java.awt.event.WindowListener;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Vector;
 
 public class Ydunn extends JFrame implements DiscoveryListener, WindowListener, ActionListener, Runnable{
@@ -49,8 +54,18 @@ public class Ydunn extends JFrame implements DiscoveryListener, WindowListener, 
 
     private int[] inputs;
     private int samplingFreq;
+    private int samplesInEpoch;
+
+    private JComboBox decimationFactor;
+
+    private JCheckBox chkbox_txt;
+    private JCheckBox chkbox_hdf5;
+    private JButton btn_destFolder;
+    private JTextField text_destFolder;
 
     private TimeSeries[] ts;
+
+    private Writer writer;
 
     public Ydunn(){
 
@@ -126,15 +141,72 @@ public class Ydunn extends JFrame implements DiscoveryListener, WindowListener, 
         availableDevices.setAlignmentX(Component.CENTER_ALIGNMENT);
         connection_details.add(device_list_scroller);
 
+        GridBagConstraints c = new GridBagConstraints();
+
+        JPanel panel_selectors = new JPanel();  panel_selectors.setLayout(new BoxLayout(panel_selectors, BoxLayout.X_AXIS));
         JPanel panel_input_selection = new JPanel();
-        panel_input_selection.setLayout(new GridLayout(5, 2));
-        panel_input_selection.setMaximumSize(new Dimension(70, 200));
-        chkbox_emg = new JCheckBox(); panel_input_selection.add(chkbox_emg); panel_input_selection.add(new JLabel("EMG"));
-        chkbox_eda = new JCheckBox(); panel_input_selection.add(chkbox_eda); panel_input_selection.add(new JLabel("EDA"));
-        chkbox_ecg = new JCheckBox(); panel_input_selection.add(chkbox_ecg); panel_input_selection.add(new JLabel("ECG"));
-        chkbox_acc = new JCheckBox(); panel_input_selection.add(chkbox_acc); panel_input_selection.add(new JLabel("ACC"));
-        chkbox_lux = new JCheckBox(); panel_input_selection.add(chkbox_lux); panel_input_selection.add(new JLabel("LUX"));
-        connection_details.add(panel_input_selection);
+        //panel_input_selection.setLayout(new GridLayout(5, 2));
+        panel_input_selection.setLayout(new GridBagLayout());
+        panel_input_selection.setPreferredSize(new Dimension(120, 150));
+        panel_input_selection.setMaximumSize(new Dimension(150, 150));
+        TitledBorder title_input = BorderFactory.createTitledBorder("Input file formats:"); title_input.setTitleJustification(TitledBorder.CENTER); panel_input_selection.setBorder( title_input );
+
+        chkbox_emg = new JCheckBox();   c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 0; c.gridy = 0;   panel_input_selection.add(chkbox_emg,c);
+        c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 1; c.gridy = 0;   panel_input_selection.add(new JLabel("EMG"),c);
+
+        chkbox_eda = new JCheckBox();   c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 0; c.gridy = 1; panel_input_selection.add(chkbox_eda,c);
+        c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 1; c.gridy = 1;   panel_input_selection.add(new JLabel("EDA"),c);
+
+        chkbox_ecg = new JCheckBox(); c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 0; c.gridy = 2;   panel_input_selection.add(chkbox_ecg,c);
+        c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 1; c.gridy = 2;   panel_input_selection.add(new JLabel("ECG"),c);
+
+        chkbox_acc = new JCheckBox(); c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 0; c.gridy = 3; panel_input_selection.add(chkbox_acc,c);
+        c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 1; c.gridy = 3;   panel_input_selection.add(new JLabel("ACC"),c);
+
+        chkbox_lux = new JCheckBox(); c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 0; c.gridy = 4; panel_input_selection.add(chkbox_lux,c);
+        c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 1; c.gridy = 4;   panel_input_selection.add(new JLabel("LUX"),c);
+
+        JPanel processing_panel = new JPanel();
+        processing_panel.setLayout(new GridBagLayout());
+            TitledBorder title_decimation = BorderFactory.createTitledBorder("Processing settings:");
+            title_decimation.setTitleJustification(TitledBorder.CENTER);
+            processing_panel.setBorder(title_decimation);
+        processing_panel.setPreferredSize(new Dimension(200,50));
+        processing_panel.setMaximumSize(new Dimension(250,80));
+        JLabel dec_fc = new JLabel("Decimation factor:");
+            c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 0; c.gridy = 0;
+            processing_panel.add(dec_fc, c);
+
+            decimationFactor = new JComboBox(new String[]{"1","2","3","4","5","10","100"});
+            decimationFactor.setSelectedIndex(5);
+            c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 1; c.gridy = 0;
+            processing_panel.add(decimationFactor, c);
+
+        JPanel panel_output_selection = new JPanel();
+        //panel_output_selection.setLayout(new GridLayout(3,2));
+        panel_output_selection.setLayout(new GridBagLayout());
+        panel_output_selection.setPreferredSize(new Dimension(100, 100));
+        panel_output_selection.setMaximumSize(new Dimension(200, 100));
+        TitledBorder title_output = BorderFactory.createTitledBorder("Output file formats:"); title_output.setTitleJustification(TitledBorder.CENTER); panel_output_selection.setBorder( title_output );
+
+        chkbox_txt = new JCheckBox();   c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 0; c.gridy = 0; panel_output_selection.add(chkbox_txt,c);
+        c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 1; c.gridy = 0; panel_output_selection.add(new JLabel("CSV"),c);
+
+        chkbox_hdf5 = new JCheckBox(); c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 0; c.gridy = 1; panel_output_selection.add(chkbox_hdf5,c);
+        c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 1; c.gridy = 1; panel_output_selection.add(new JLabel("HDF5"),c);
+
+        text_destFolder = new JTextField(60); text_destFolder.setText(System.getProperty("user.home"));
+            c.fill = GridBagConstraints.HORIZONTAL; c.weightx = 2.0; c.gridx = 0; c.gridy = 2; c.gridwidth = 2; panel_output_selection.add(text_destFolder,c);
+        btn_destFolder = new JButton("Browse");
+            c.fill = GridBagConstraints.HORIZONTAL; c.gridx = 0; c.gridy = 3; c.gridwidth = 2; btn_destFolder.addActionListener(this);
+            panel_output_selection.add(btn_destFolder,c);
+
+
+        panel_selectors.add(panel_input_selection);
+        panel_selectors.add(processing_panel);
+        panel_selectors.add(panel_output_selection);
+        connection_details.add(panel_selectors);
+        //connection_details.add(panel_input_selection);
 
         JPanel conn_button_panel = new JPanel();
         conn_button_panel.setLayout(new BoxLayout(conn_button_panel, BoxLayout.X_AXIS));
@@ -250,37 +322,108 @@ public class Ydunn extends JFrame implements DiscoveryListener, WindowListener, 
 
             // read n samples, according to the selected sampling frequency
             enabledAcquisition = true;
-            BITalinoFrame[] samplesRead = new BITalinoFrame[samplingFreq];
+            BITalinoFrame[] samplesRead = new BITalinoFrame[samplesInEpoch];
+
+            int period = 1000 / samplesInEpoch;   // period in ms (within a 1sec epoch, we read #samplesInEpoch samples)
 
             while(enabledAcquisition){
+                System.out.println("Reading " + samplesInEpoch + " samples..");
 
-                System.out.println("Reading " + samplingFreq + " samples..");
+                Calendar beginning = Calendar.getInstance();
+                Calendar temp = Calendar.getInstance(); temp.setTime(beginning.getTime());
 
-                //Date now = Calendar.getInstance().getTime();
-                Millisecond p = new Millisecond();
-
-                for (int counter = 0; counter < samplingFreq; counter++) {
-
+                for (int counter = 0; counter < samplesInEpoch; counter++) {
                     BITalinoFrame[] frames = device.read(1);
                     samplesRead[counter] = frames[0];
 
-                    //System.out.println("FRAME: " + frames[0].toString());
+                    //System.out.println("\t "+counter+": "+format.format(temp.getTime()));
                     for(Integer i : inputs){
-                        // 1000 Hz = 1ms, 100 Hz = 10 ms, 10 Hz = 100 ms
-                        ts[i].addOrUpdate(p.next(), samplesRead[counter].getAnalog(i));
+                        ts[i].addOrUpdate(new Millisecond(temp.getTime()), samplesRead[counter].getAnalog(i));
                     }
 
+                    this.writer.appendSample(temp.getTimeInMillis(), new double[]{frames[0].getAnalog(0), frames[0].getAnalog(1), frames[0].getAnalog(2), frames[0].getAnalog(3), frames[0].getAnalog(4)});
+
+                    temp.setTimeInMillis(temp.getTimeInMillis()+period);    // update to the next sample time
                 }
+
+                long duration = Calendar.getInstance().getTimeInMillis() - beginning.getTimeInMillis();
+                System.out.println("Epoch lasted "+duration+" ms");
+
+                if(duration < 1000) Thread.sleep(1000 - duration);  // sleep for 1 second between epochs
             }
 
             // stop acquisition and close bluetooth connection
             this.device.stop();
         } catch (BITalinoException e) {
             e.printStackTrace();
-        } /*catch (InterruptedException e) {
+        } catch (InterruptedException e) {
             e.printStackTrace();
-        }*/
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, e.getMessage());
+        }
     }
+
+    public class Writer{
+
+        private String folderpath;
+
+        private boolean en_csvWriter;
+        private FileWriter csvWriter;
+
+        private boolean en_hdf5Writer;
+        private IHDF5SimpleWriter hdf5Writer;
+
+        public Writer(String folderpath){
+            this.folderpath = folderpath;
+        }
+
+        public void enableCSVWriter(String filename) throws IOException {
+            this.en_csvWriter = true;
+            this.csvWriter = new FileWriter(folderpath+"/"+filename);
+            this.csvWriter.append("time,EMG,EDA,ECG,ACC,LUX\n");
+        }
+
+        public void enableHDF5Writer(String filename){
+            this.en_hdf5Writer = true;
+            this.hdf5Writer = HDF5Factory.open(folderpath+"/"+filename);
+        }
+
+        public void appendSample(long time, //Calendar time,
+                                 double[] samples) throws IOException {
+            if(this.en_csvWriter){
+                this.csvWriter.append(time+","  //time.getTimeInMillis()+","
+                                        +samples[0]+","
+                                        +samples[1]+","
+                                        +samples[2]+","
+                                        +samples[3]+","
+                                        +samples[4]+"\n");
+            }
+
+            if(this.en_hdf5Writer){
+                this.hdf5Writer.writeDoubleArray(""+time,//time.getTimeInMillis(),
+                                                samples);
+
+                //float[] mydata = new float[5];
+                //writer.writeFloatArray("mydata", mydata);
+
+                // Write a measurement as a object
+                //writer.writeCompound("measurement", new Measurement(new Date(), 18.6f, 15.38937516));
+                //System.out.println("Compound measurement record: "+ writer.readCompound("measurement", Measurement.class));
+            }
+        }
+
+        public void closeAll() throws IOException {
+            if(this.en_csvWriter){
+                this.csvWriter.flush();
+                this.csvWriter.close();
+            }
+
+            if(this.en_hdf5Writer){
+                this.hdf5Writer.close();
+            }
+        }
+    }
+
 
     public static void main(String[] args) throws Throwable {
         java.awt.EventQueue.invokeLater(new Runnable() {
@@ -295,6 +438,18 @@ public class Ydunn extends JFrame implements DiscoveryListener, WindowListener, 
     @Override
     public void actionPerformed(ActionEvent actionEvent) {
         switch(actionEvent.getActionCommand()){
+            case "Browse":
+                JFileChooser chooser = new JFileChooser();
+                    chooser.setCurrentDirectory(new java.io.File(System.getProperty("user.home")));
+                    chooser.setDialogTitle("Select a destination folder");
+                    chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+                    chooser.setAcceptAllFileFilterUsed(false);
+
+                if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                    this.text_destFolder.setText(chooser.getSelectedFile().getPath());
+                }
+                break;
+
             case "Refresh":
                 try {
                     discoverDevices();
@@ -315,6 +470,9 @@ public class Ydunn extends JFrame implements DiscoveryListener, WindowListener, 
                         if(chkbox_emg.isSelected()) samplingFreq = 1000;
                         else if(chkbox_ecg.isSelected() || chkbox_acc.isSelected()) samplingFreq = 100;
 
+                        this.samplesInEpoch = samplingFreq / Integer.parseInt((String)decimationFactor.getSelectedItem());
+                        //this.samplesInEpoch = 10;
+
                         ArrayList<Integer> ins = new ArrayList<>();
                         if(chkbox_emg.isSelected()) ins.add(0);
                         if(chkbox_eda.isSelected()) ins.add(1);
@@ -324,6 +482,10 @@ public class Ydunn extends JFrame implements DiscoveryListener, WindowListener, 
                         inputs = ins.stream().mapToInt(i->i).toArray();   // God bless Lambda functions!
 
                         if(inputs.length > 0){
+                            writer = new Writer(text_destFolder.getText());
+                            String filename = (new SimpleDateFormat("yyyy_MM_dd_HH_mm_ss")).format(Calendar.getInstance().getTime());
+                            if(chkbox_txt.isSelected()) writer.enableCSVWriter(filename+".csv");
+                            if(chkbox_hdf5.isSelected()) writer.enableHDF5Writer(filename+".hf5");
 
                             this.connectTo(devicesDiscovered.get(this.availableDevices.getSelectedIndex()).getBluetoothAddress(),
                                     samplingFreq,
@@ -350,19 +512,20 @@ public class Ydunn extends JFrame implements DiscoveryListener, WindowListener, 
 
     @Override
     public void windowClosing(WindowEvent windowEvent) {
-
+        if(status > 0){
+            enabledAcquisition = false;
+            try {
+                JOptionPane.showMessageDialog(this, "All data will be saved and the tool closed");
+                this.writer.closeAll();
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(this, e.getMessage());
+            }
+        }
     }
 
     @Override
     public void windowClosed(WindowEvent windowEvent) {
-        if(status > 0){
-            //try {
-                enabledAcquisition = false;
-                //device.stop();
-            //} catch (BITalinoException e) {
-             //   e.printStackTrace();
-            //}
-        }
+
     }
 
     @Override
